@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerador Inteligente Lotofácil</title>
+    
+    <!-- FAVICON ADICIONADO AQUI -->
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" type="image/x-icon">
+    
+    <style>
+        /* (Todo o seu CSS anterior continua aqui) */
+        :root { --primary: #2c3e50; --secondary: #3498db; --light: #ecf0f1; --dark: #2c3e50; --success: #2ecc71; --danger: #e74c3c; }
+        body { font-family: 'Segoe UI', sans-serif; line-height: 1.6; color: var(--dark); background-color: #f5f5f5; margin: 0; padding: 0; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        header { background-color: var(--primary); color: white; padding: 15px 0; text-align: center; margin-bottom: 30px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center; gap: 15px; }
+        
+        /* Estilo da Logo no Cabeçalho */
+        .header-logo {
+            height: 80px; /* Ajuste a altura conforme necessário */
+            width: auto;
+        }
+
+        h1 { margin: 0; font-size: 2.2em; }
+        h2 { color: var(--primary); border-bottom: 2px solid var(--secondary); padding-bottom: 5px; margin-top: 40px; }
+        h3 { color: var(--secondary); }
+        .card { background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 25px; margin-bottom: 25px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input[type="number"] { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; }
+        .checkbox-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
+        .checkbox-item { display: flex; align-items: center; background: #f9f9f9; padding: 10px 15px; border-radius: 4px; border: 1px solid #eee; }
+        .checkbox-item input { margin-right: 10px; }
+        .button-group { display: flex; gap: 15px; margin-top: 20px; }
+        .btn { color: white; border: none; padding: 12px 25px; font-size: 18px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s; font-weight: bold; }
+        .btn-submit { background-color: var(--success); }
+        .btn-clear { background-color: var(--danger); }
+        .jogo-container { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
+        .jogo-container:last-child { border-bottom: none; }
+        .jogo { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+        .numero { background: var(--secondary); color: white; width: 35px; height: 35px; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-weight: bold; font-size: 1.1em; }
+        .acertos-info { font-style: italic; color: #555; font-size: 0.9em; }
+        .acertos-destaque { font-weight: bold; color: var(--success); }
+        .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .grafico { text-align: center; margin-top: 30px; }
+        .grafico img { max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .alert { padding: 15px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 4px; margin-bottom: 20px; text-align: center; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: var(--primary); color: white; }
+        tr:nth-child(even) { background-color: #f8f8f8; }
+        footer { text-align: center; padding: 20px; margin-top: 40px; background-color: var(--dark); color: var(--light); font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <header>
+        <!-- LOGO ADICIONADA AQUI -->
+        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo Gerador Inteligente" class="header-logo">
+        <h1>Gerador Inteligente Lotofácil</h1>
+    </header>
+
+    <div class="container">
+        <!-- Todo o resto do seu conteúdo (formulário, jogos, análises) continua aqui sem alterações -->
+        {% if not dados_carregados %}
+            <div class="alert"><strong>Erro:</strong> Não foi possível carregar o arquivo de dados <code>Lotofácil.xlsx</code>. Verifique se o arquivo está na pasta correta.</div>
+        {% endif %}
+
+        <form method="POST" class="card">
+            <h2>1. Defina a Quantidade e as Estratégias</h2>
+            <div class="form-group"><label for="qtd_jogos">Quantidade de jogos a gerar (após filtros):</label><input type="number" id="qtd_jogos" name="qtd_jogos" min="1" max="20" value="{{ form_data.qtd_jogos }}" placeholder="Ex: 3"></div>
+            <div class="form-group"><label>Técnicas Base (para dar peso aos números):</label><div class="checkbox-group"><div class="checkbox-item"><input type="checkbox" id="frequencia" name="tecnicas_base" value="frequencia" {% if 'frequencia' in form_data.tecnicas_base %}checked{% endif %}><label for="frequencia">{{ tecnicas.frequencia.nome }}</label></div><div class="checkbox-item"><input type="checkbox" id="atraso" name="tecnicas_base" value="atraso" {% if 'atraso' in form_data.tecnicas_base %}checked{% endif %}><label for="atraso">{{ tecnicas.atraso.nome }}</label></div></div></div>
+            <div class="form-group"><label>Filtros (para selecionar apenas os melhores jogos):</label><div class="checkbox-group"><div class="checkbox-item"><input type="checkbox" id="par_impar" name="filtros" value="par_impar" {% if 'par_impar' in form_data.filtros %}checked{% endif %}><label for="par_impar">{{ tecnicas.par_impar.nome }}</label></div><div class="checkbox-item"><input type="checkbox" id="soma_dezenas" name="filtros" value="soma_dezenas" {% if 'soma_dezenas' in form_data.filtros %}checked{% endif %}><label for="soma_dezenas">{{ tecnicas.soma_dezenas.nome }}</label></div><div class="checkbox-item"><input type="checkbox" id="moldura_miolo" name="filtros" value="moldura_miolo" {% if 'moldura_miolo' in form_data.filtros %}checked{% endif %}><label for="moldura_miolo">{{ tecnicas.moldura_miolo.nome }}</label></div></div></div>
+            <div class="button-group"><button type="submit" name="gerar" class="btn btn-submit" {% if not dados_carregados %}disabled{% endif %}>Gerar Jogos</button><button type="submit" name="limpar" value="true" class="btn btn-clear">Limpar Jogos</button></div>
+        </form>
+
+        {% if jogos %}<div class="card"><h2>2. Seus Jogos Gerados e Analisados</h2>{% for jogo_info in jogos %}<div class="jogo-container"><div class="jogo">{% for numero in jogo_info.numeros %}<div class="numero">{{ numero }}</div>{% endfor %}</div><div class="acertos-info"><strong>Análise Histórica:</strong>{% set teve_acerto = false %}{% for acerto, qtd in jogo_info.acertos.items()|sort(reverse=True) %}{% if qtd > 0 %}{% set teve_acerto = true %}<span><span class="acertos-destaque">{{ acerto }}</span> acertos (<span class="acertos-destaque">{{ qtd }}</span> vez{% if qtd > 1 %}es{% endif %}); </span>{% endif %}{% endfor %}{% if not teve_acerto %}<span>Este jogo nunca pontuou (11-15 acertos) no histórico.</span>{% endif %}</div></div>{% endfor %}</div>{% endif %}
+        {% if dados_carregados %}<div class="card"><h2>3. Análise Histórica e Padrões</h2>{% if estatisticas %}<div class="grid-2"><div><h3>Combinações Par/Ímpar mais comuns</h3><table><tr><th>Combinação</th><th>Frequência</th></tr>{% for item, count in estatisticas.par_impar %}<tr><td>{{ item }}</td><td>{{ count }} vezes</td></tr>{% endfor %}</table></div><div><h3>Combinações Moldura/Miolo mais comuns</h3><table><tr><th>Combinação</th><th>Frequência</th></tr>{% for item, count in estatisticas.moldura_miolo %}<tr><td>{{ item }}</td><td>{{ count }} vezes</td></tr>{% endfor %}</table></div></div>{% endif %}<div class="grafico"><h3>Distribuição Histórica da Soma dos Números</h3>{% if stats_plot_url %}<img src="data:image/png;base64,{{ stats_plot_url }}" alt="Gráfico de Soma dos Sorteios"><p>O gráfico mostra que a maioria dos sorteios tem a soma dos números entre 185 e 205.</p>{% else %}<div class="alert">Não foi possível gerar o gráfico de distribuição da soma.</div>{% endif %}</div><div class="grafico"><h3>Frequência Histórica de Cada Número</h3>{% if plot_url %}<img src="data:image/png;base64,{{ plot_url }}" alt="Gráfico de Frequência de cada número">{% else %}<div class="alert">Não foi possível gerar o gráfico de frequência dos números.</div>{% endif %}</div></div>{% endif %}
+    </div>
+
+    <footer>
+        <p>© 2025 - Desenvolvido por Jones Carlos Viegas</p>
+    </footer>
+</body>
+</html>
+{% block scripts %}
+    <script>
+        // Adicione aqui qualquer script JavaScript necessário
+        document.addEventListener('DOMContentLoaded', function() {
+            // Exemplo: alert de boas-vindas
+            console.log("Bem-vindo ao Gerador Inteligente Lotofácil!");
+        });
+    </script>
+{% endblock %}

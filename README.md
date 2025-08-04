@@ -80,12 +80,19 @@ Siga os passos abaixo para rodar a aplicação no seu computador.
 
 .
 ├── static/ # Arquivos estáticos (imagens, favicon)
+
 ├── templates/
+
 │ └── index.html # Template principal da aplicação
+
 ├── .gitignore # Arquivos e pastas a serem ignorados pelo Git
+
 ├── app.py # Lógica principal da aplicação Flask
+
 ├── Lotofácil.xlsx # Banco de dados com o histórico dos sorteios
+
 ├── requirements.txt # Lista de dependências Python
+
 └── README.md # Este arquivo
 
 

@@ -226,5 +226,5 @@ def index():
         stats_gerador=stats_gerador # NOVO: Passando as estatísticas do gerador para o HTML
     )
 
-if __name__ == '__main__':
-    app.run(debug=True)
+#if __name__ == '__main__':
+#   app.run(debug=True)

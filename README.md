@@ -99,4 +99,4 @@ Este projeto é distribuído sob a licença MIT. Veja o arquivo `LICENSE` para m
 
 ## ✨ Autor
 
-Desenvolvido com ❤️ por **Jones Carlos Viegas**.
+Desenvolvido por **Jones Carlos Viegas**.

@@ -7,6 +7,7 @@ from collections import Counter
 import io
 import base64
 import os
+import json # NOVO: Importa a biblioteca JSON
 
 import matplotlib
 matplotlib.use('Agg')
@@ -25,12 +26,17 @@ ANALISE_TECNICAS = {
     'par_impar': {'nome': 'Filtro Par/Ímpar (7-9 de cada)'}, 'soma_dezenas': {'nome': 'Filtro Soma (185-205)'},
     'moldura_miolo': {'nome': 'Filtro Moldura/Miolo (8-11 na moldura)'}
 }
+# Caminhos dos arquivos de dados/estatísticas
+CAMINHO_CONTADOR = 'contador.txt'
+# NOVO: Caminho para o arquivo de estatísticas do gerador
+CAMINHO_STATS_GERADOR = 'gerador_stats.json'
+
 
 # --- CACHE GLOBAL PARA PERFORMANCE ---
 DF_GLOBAL = None
 STATS_GLOBAL = {}
 PLOT_URL_GLOBAL, STATS_PLOT_URL_GLOBAL = None, None
-HISTORICAL_SETS = [] # Cache dos jogos históricos como sets para análise rápida
+HISTORICAL_SETS = []
 
 def load_data():
     try:
@@ -41,7 +47,49 @@ def load_data():
         print(f"ERRO CRÍTICO: Não foi possível carregar 'Lotofácil.xlsx'. Detalhes: {e}")
         return None
 
-# ... (outras funções de análise como analisar_estatisticas_adicionais, generate_charts, etc. permanecem as mesmas) ...
+# --- FUNÇÕES DE ARQUIVO (CONTADOR E ESTATÍSTICAS) ---
+def atualizar_e_obter_visitas():
+    total_visitas = 0
+    try:
+        if not os.path.exists(CAMINHO_CONTADOR):
+            with open(CAMINHO_CONTADOR, 'w') as f: f.write('0')
+        with open(CAMINHO_CONTADOR, 'r') as f:
+            conteudo = f.read().strip()
+            total_visitas = int(conteudo) if conteudo else 0
+    except (IOError, ValueError) as e:
+        print(f"Alerta: Não foi possível ler o arquivo do contador ({e}). Reiniciando para 0.")
+        total_visitas = 0
+    total_visitas += 1
+    try:
+        with open(CAMINHO_CONTADOR, 'w') as f: f.write(str(total_visitas))
+    except IOError as e:
+        print(f"ERRO CRÍTICO: Não foi possível escrever no arquivo do contador: {e}")
+    return total_visitas
+
+# NOVO: Funções para ler e salvar estatísticas do gerador
+def ler_estatisticas_gerador():
+    """Lê as estatísticas do arquivo JSON."""
+    default_stats = {"total_gerados": 0, "total_exitosos": 0}
+    try:
+        if not os.path.exists(CAMINHO_STATS_GERADOR):
+            with open(CAMINHO_STATS_GERADOR, 'w') as f:
+                json.dump(default_stats, f)
+            return default_stats
+        with open(CAMINHO_STATS_GERADOR, 'r') as f:
+            return json.load(f)
+    except (IOError, json.JSONDecodeError):
+        return default_stats
+
+def salvar_estatisticas_gerador(stats_data):
+    """Salva as estatísticas no arquivo JSON."""
+    try:
+        with open(CAMINHO_STATS_GERADOR, 'w') as f:
+            json.dump(stats_data, f, indent=4)
+    except IOError as e:
+        print(f"ERRO CRÍTICO: Não foi possível salvar estatísticas do gerador: {e}")
+
+
+# --- FUNÇÕES DE ANÁLISE ---
 def analisar_estatisticas_adicionais(df):
     if df is None: return {}
     stats = {'par_impar': [], 'soma': [], 'moldura_miolo': []}
@@ -74,13 +122,11 @@ if DF_GLOBAL is not None:
     print("Arquivo 'Lotofácil.xlsx' carregado com sucesso.")
     STATS_GLOBAL = analisar_estatisticas_adicionais(DF_GLOBAL)
     PLOT_URL_GLOBAL, STATS_PLOT_URL_GLOBAL = generate_charts(DF_GLOBAL, STATS_GLOBAL)
-    # Pré-processa os jogos históricos em sets para performance
     HISTORICAL_SETS = [set(row) for row in DF_GLOBAL[BOLAS].values.tolist()]
     print(f"Análise de acertos pré-processada com {len(HISTORICAL_SETS)} sorteios.")
 
-def analisar_frequencias(df):
-    return df[BOLAS].stack().value_counts().to_dict() if df is not None else {}
-
+# --- FUNÇÕES DE GERAÇÃO E ANÁLISE DE JOGOS ---
+def analisar_frequencias(df): return df[BOLAS].stack().value_counts().to_dict() if df is not None else {}
 def calcular_atrasos(df):
     if df is None or df.empty: return {}
     atrasos, ultimo_concurso_num = {}, df['Concurso'].max()
@@ -109,37 +155,33 @@ def gerar_jogos(pesos_base, qtd_jogos, filtros):
         jogos_filtrados.append(list(jogo))
     return jogos_filtrados
 
-# --- NOVA FUNÇÃO DE ANÁLISE DE ACERTOS ---
 def analisar_acertos_historicos(jogos):
-    """Analisa cada jogo gerado contra os resultados históricos."""
     resultados = []
     for jogo in jogos:
         jogo_set = set(jogo)
         acertos = {'11': 0, '12': 0, '13': 0, '14': 0, '15': 0}
         for historico_set in HISTORICAL_SETS:
             hits = len(jogo_set.intersection(historico_set))
-            if hits >= 11:
-                acertos[str(hits)] += 1
+            if hits >= 11: acertos[str(hits)] += 1
         resultados.append({'numeros': jogo, 'acertos': acertos})
     return resultados
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
     jogos, form_data = [], {}
+    # NOVO: Lê as estatísticas do gerador a cada requisição
+    stats_gerador = ler_estatisticas_gerador()
 
     if request.method == 'POST':
         if 'limpar' in request.form:
             return redirect(url_for('index'))
 
-        # Preserva o estado do formulário
         form_data = {
             'qtd_jogos': request.form.get('qtd_jogos', '1'),
             'tecnicas_base': request.form.getlist('tecnicas_base'),
             'filtros': request.form.getlist('filtros')
         }
-        
         qtd_jogos = int(form_data['qtd_jogos'] or 1)
-        
         freq = analisar_frequencias(DF_GLOBAL); atrasos = calcular_atrasos(DF_GLOBAL)
         pesos = {num: 0 for num in NUMEROS_DISPONIVEIS}
         if 'frequencia' in form_data['tecnicas_base']:
@@ -152,21 +194,36 @@ def index():
              pesos = {num: 1 for num in NUMEROS_DISPONIVEIS}
 
         jogos_gerados = gerar_jogos(pesos, qtd_jogos, form_data['filtros'])
-        # Analisa os acertos históricos dos jogos gerados
         jogos = analisar_acertos_historicos(jogos_gerados)
 
-    else: # GET request (página inicial ou após limpar)
-        # Define o estado inicial/limpo do formulário
+        # NOVO: Bloco para atualizar e salvar as estatísticas do gerador
+        if jogos:
+            # Conta quantos dos jogos gerados tiveram sucesso histórico
+            jogos_exitosos = sum(1 for jogo_info in jogos if sum(jogo_info['acertos'].values()) > 0)
+            
+            # Atualiza os dados lidos do arquivo JSON
+            stats_gerador['total_gerados'] += len(jogos)
+            stats_gerador['total_exitosos'] += jogos_exitosos
+            
+            # Salva os dados atualizados de volta no arquivo
+            salvar_estatisticas_gerador(stats_gerador)
+
+    else:
         form_data = { 'qtd_jogos': '', 'tecnicas_base': [], 'filtros': [] }
+    
+    total_visitas = atualizar_e_obter_visitas()
     
     return render_template(
         'index.html',
-        plot_url=PLOT_URL_GLOBAL, stats_plot_url=STATS_PLOT_URL_GLOBAL,
+        plot_url=PLOT_URL_GLOBAL,
+        stats_plot_url=STATS_PLOT_URL_GLOBAL,
         jogos=jogos,
-        form_data=form_data, # Envia os dados do formulário para o template
+        form_data=form_data,
         tecnicas=ANALISE_TECNICAS,
         estatisticas=STATS_GLOBAL,
-        dados_carregados=(DF_GLOBAL is not None)
+        dados_carregados=(DF_GLOBAL is not None),
+        contador_visitas=total_visitas,
+        stats_gerador=stats_gerador # NOVO: Passando as estatísticas do gerador para o HTML
     )
 
 if __name__ == '__main__':

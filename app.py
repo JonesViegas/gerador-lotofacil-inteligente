@@ -7,7 +7,7 @@ from collections import Counter
 import io
 import base64
 import os
-import json # NOVO: Importa a biblioteca JSON
+import json
 
 import matplotlib
 matplotlib.use('Agg')
@@ -26,15 +26,11 @@ ANALISE_TECNICAS = {
     'par_impar': {'nome': 'Filtro Par/Ímpar (7-9 de cada)'}, 'soma_dezenas': {'nome': 'Filtro Soma (185-205)'},
     'moldura_miolo': {'nome': 'Filtro Moldura/Miolo (8-11 na moldura)'}
 }
-# Caminhos dos arquivos de dados/estatísticas
 CAMINHO_CONTADOR = 'contador.txt'
-# NOVO: Caminho para o arquivo de estatísticas do gerador
 CAMINHO_STATS_GERADOR = 'gerador_stats.json'
 
-
 # --- CACHE GLOBAL PARA PERFORMANCE ---
-DF_GLOBAL = None
-STATS_GLOBAL = {}
+DF_GLOBAL, STATS_GLOBAL = None, {}
 PLOT_URL_GLOBAL, STATS_PLOT_URL_GLOBAL = None, None
 HISTORICAL_SETS = []
 
@@ -47,49 +43,32 @@ def load_data():
         print(f"ERRO CRÍTICO: Não foi possível carregar 'Lotofácil.xlsx'. Detalhes: {e}")
         return None
 
-# --- FUNÇÕES DE ARQUIVO (CONTADOR E ESTATÍSTICAS) ---
 def atualizar_e_obter_visitas():
     total_visitas = 0
     try:
         if not os.path.exists(CAMINHO_CONTADOR):
             with open(CAMINHO_CONTADOR, 'w') as f: f.write('0')
         with open(CAMINHO_CONTADOR, 'r') as f:
-            conteudo = f.read().strip()
-            total_visitas = int(conteudo) if conteudo else 0
+            total_visitas = int(f.read().strip() or 0)
     except (IOError, ValueError) as e:
-        print(f"Alerta: Não foi possível ler o arquivo do contador ({e}). Reiniciando para 0.")
+        print(f"Alerta: Não foi possível ler o contador ({e}). Reiniciando para 0.")
         total_visitas = 0
     total_visitas += 1
-    try:
-        with open(CAMINHO_CONTADOR, 'w') as f: f.write(str(total_visitas))
-    except IOError as e:
-        print(f"ERRO CRÍTICO: Não foi possível escrever no arquivo do contador: {e}")
+    with open(CAMINHO_CONTADOR, 'w') as f: f.write(str(total_visitas))
     return total_visitas
 
-# NOVO: Funções para ler e salvar estatísticas do gerador
 def ler_estatisticas_gerador():
-    """Lê as estatísticas do arquivo JSON."""
     default_stats = {"total_gerados": 0, "total_exitosos": 0}
+    if not os.path.exists(CAMINHO_STATS_GERADOR): return default_stats
     try:
-        if not os.path.exists(CAMINHO_STATS_GERADOR):
-            with open(CAMINHO_STATS_GERADOR, 'w') as f:
-                json.dump(default_stats, f)
-            return default_stats
-        with open(CAMINHO_STATS_GERADOR, 'r') as f:
-            return json.load(f)
-    except (IOError, json.JSONDecodeError):
-        return default_stats
+        with open(CAMINHO_STATS_GERADOR, 'r') as f: return json.load(f)
+    except (IOError, json.JSONDecodeError): return default_stats
 
 def salvar_estatisticas_gerador(stats_data):
-    """Salva as estatísticas no arquivo JSON."""
     try:
-        with open(CAMINHO_STATS_GERADOR, 'w') as f:
-            json.dump(stats_data, f, indent=4)
-    except IOError as e:
-        print(f"ERRO CRÍTICO: Não foi possível salvar estatísticas do gerador: {e}")
+        with open(CAMINHO_STATS_GERADOR, 'w') as f: json.dump(stats_data, f, indent=4)
+    except IOError as e: print(f"ERRO CRÍTICO: Não foi possível salvar estatísticas: {e}")
 
-
-# --- FUNÇÕES DE ANÁLISE ---
 def analisar_estatisticas_adicionais(df):
     if df is None: return {}
     stats = {'par_impar': [], 'soma': [], 'moldura_miolo': []}
@@ -116,7 +95,6 @@ def generate_charts(df, stats):
     except Exception as e: print(f"Erro ao gerar gráficos: {e}")
     return plot_url, stats_plot_url
 
-# --- INICIALIZAÇÃO DO APLICATIVO ---
 DF_GLOBAL = load_data()
 if DF_GLOBAL is not None:
     print("Arquivo 'Lotofácil.xlsx' carregado com sucesso.")
@@ -125,7 +103,6 @@ if DF_GLOBAL is not None:
     HISTORICAL_SETS = [set(row) for row in DF_GLOBAL[BOLAS].values.tolist()]
     print(f"Análise de acertos pré-processada com {len(HISTORICAL_SETS)} sorteios.")
 
-# --- FUNÇÕES DE GERAÇÃO E ANÁLISE DE JOGOS ---
 def analisar_frequencias(df): return df[BOLAS].stack().value_counts().to_dict() if df is not None else {}
 def calcular_atrasos(df):
     if df is None or df.empty: return {}
@@ -135,24 +112,49 @@ def calcular_atrasos(df):
         atrasos[num] = ultimo_concurso_num - (ultimo_sorteio_com_num if pd.notna(ultimo_sorteio_com_num) else 0)
     return atrasos
 
-def gerar_jogos(pesos_base, qtd_jogos, filtros):
+# --- ATUALIZADO: Lógica de geração de jogos completamente refeita ---
+def gerar_jogos(pesos_base, qtd_jogos, filtros, game_size, include_nums, exclude_nums):
     jogos_filtrados = []
-    numeros_lista = list(pesos_base.keys())
-    pesos_lista = np.array(list(pesos_base.values()))
-    if pesos_lista.sum() == 0: return []
-    pesos_normalizados = pesos_lista / pesos_lista.sum()
-    pool_size = min(max(qtd_jogos * 50, 500), 20000); jogos_gerados = set()
-    for _ in range(pool_size * 2):
+    
+    # Validação inicial
+    if len(include_nums) > game_size:
+        return [] # Não é possível gerar um jogo se os números incluídos já excedem o tamanho
+
+    # Prepara o conjunto de números disponíveis para a geração aleatória
+    pool_numeros = list(set(pesos_base.keys()) - set(exclude_nums) - set(include_nums))
+    
+    # Filtra os pesos para corresponderem apenas aos números do pool
+    pool_pesos = [pesos_base.get(num, 0) for num in pool_numeros]
+    if sum(pool_pesos) == 0:
+        # Fallback se todos os números com peso foram excluídos
+        pool_pesos = np.ones(len(pool_numeros))
+    
+    pesos_normalizados = np.array(pool_pesos) / sum(pool_pesos)
+    
+    qtd_a_escolher = game_size - len(include_nums)
+    if qtd_a_escolher > len(pool_numeros):
+        return [] # Não há números suficientes no pool para completar o jogo
+
+    jogos_gerados = set()
+    for _ in range(qtd_jogos * 50): # Gera um pool para ter de onde filtrar
         if len(jogos_filtrados) >= qtd_jogos: break
-        jogo_array = np.random.choice(numeros_lista, size=15, replace=False, p=pesos_normalizados)
-        jogo = tuple(sorted(list(jogo_array)))
-        if jogo in jogos_gerados: continue
-        jogos_gerados.add(jogo)
-        impares = sum(1 for n in jogo if n % 2 != 0); soma = sum(jogo); moldura_count = sum(1 for n in jogo if n in MOLDURA)
-        if 'par_impar' in filtros and not (7 <= impares <= 9): continue
-        if 'soma_dezenas' in filtros and not (185 <= soma <= 205): continue
-        if 'moldura_miolo' in filtros and not (8 <= moldura_count <= 11): continue
-        jogos_filtrados.append(list(jogo))
+
+        numeros_aleatorios = np.random.choice(pool_numeros, size=qtd_a_escolher, replace=False, p=pesos_normalizados)
+        jogo_final = tuple(sorted(include_nums + list(numeros_aleatorios)))
+        
+        if jogo_final in jogos_gerados: continue
+        jogos_gerados.add(jogo_final)
+
+        # Aplica filtros apenas se o jogo for de 15 dezenas
+        if game_size == 15:
+            impares = sum(1 for n in jogo_final if n % 2 != 0)
+            if 'par_impar' in filtros and not (7 <= impares <= 9): continue
+            if 'soma_dezenas' in filtros and not (185 <= sum(jogo_final) <= 205): continue
+            moldura_count = sum(1 for n in jogo_final if n in MOLDURA)
+            if 'moldura_miolo' in filtros and not (8 <= moldura_count <= 11): continue
+        
+        jogos_filtrados.append(list(jogo_final))
+            
     return jogos_filtrados
 
 def analisar_acertos_historicos(jogos):
@@ -166,10 +168,20 @@ def analisar_acertos_historicos(jogos):
         resultados.append({'numeros': jogo, 'acertos': acertos})
     return resultados
 
+def parse_numeros_input(input_str):
+    """Converte uma string '1, 2, 3' em uma lista de inteiros [1, 2, 3]"""
+    if not input_str: return []
+    try:
+        # Remove vírgulas e divide por espaços
+        numeros = [int(n) for n in input_str.replace(',', ' ').split() if n.isdigit()]
+        # Garante que os números são válidos para a Lotofácil
+        return sorted(list(set(n for n in numeros if 1 <= n <= 25)))
+    except (ValueError, TypeError):
+        return []
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     jogos, form_data = [], {}
-    # NOVO: Lê as estatísticas do gerador a cada requisição
     stats_gerador = ler_estatisticas_gerador()
 
     if request.method == 'POST':
@@ -178,10 +190,22 @@ def index():
 
         form_data = {
             'qtd_jogos': request.form.get('qtd_jogos', '1'),
+            'game_size': request.form.get('game_size', '15'),
             'tecnicas_base': request.form.getlist('tecnicas_base'),
-            'filtros': request.form.getlist('filtros')
+            'filtros': request.form.getlist('filtros'),
+            'include_nums_str': request.form.get('include_nums', ''),
+            'exclude_nums_str': request.form.get('exclude_nums', '')
         }
+        
+        # Converte e valida os inputs
         qtd_jogos = int(form_data['qtd_jogos'] or 1)
+        game_size = int(form_data['game_size'] or 15)
+        include_nums = parse_numeros_input(form_data['include_nums_str'])
+        exclude_nums = parse_numeros_input(form_data['exclude_nums_str'])
+        
+        # Evita conflitos
+        exclude_nums = list(set(exclude_nums) - set(include_nums))
+
         freq = analisar_frequencias(DF_GLOBAL); atrasos = calcular_atrasos(DF_GLOBAL)
         pesos = {num: 0 for num in NUMEROS_DISPONIVEIS}
         if 'frequencia' in form_data['tecnicas_base']:
@@ -193,38 +217,29 @@ def index():
         if not form_data['tecnicas_base'] or sum(pesos.values()) == 0:
              pesos = {num: 1 for num in NUMEROS_DISPONIVEIS}
 
-        jogos_gerados = gerar_jogos(pesos, qtd_jogos, form_data['filtros'])
+        jogos_gerados = gerar_jogos(pesos, qtd_jogos, form_data['filtros'], game_size, include_nums, exclude_nums)
         jogos = analisar_acertos_historicos(jogos_gerados)
 
-        # NOVO: Bloco para atualizar e salvar as estatísticas do gerador
         if jogos:
-            # Conta quantos dos jogos gerados tiveram sucesso histórico
             jogos_exitosos = sum(1 for jogo_info in jogos if sum(jogo_info['acertos'].values()) > 0)
-            
-            # Atualiza os dados lidos do arquivo JSON
             stats_gerador['total_gerados'] += len(jogos)
             stats_gerador['total_exitosos'] += jogos_exitosos
-            
-            # Salva os dados atualizados de volta no arquivo
             salvar_estatisticas_gerador(stats_gerador)
-
     else:
-        form_data = { 'qtd_jogos': '', 'tecnicas_base': [], 'filtros': [] }
+        form_data = {
+            'qtd_jogos': '', 'game_size': '15', 'tecnicas_base': [], 'filtros': [],
+            'include_nums_str': '', 'exclude_nums_str': ''
+        }
     
     total_visitas = atualizar_e_obter_visitas()
     
     return render_template(
         'index.html',
-        plot_url=PLOT_URL_GLOBAL,
-        stats_plot_url=STATS_PLOT_URL_GLOBAL,
-        jogos=jogos,
-        form_data=form_data,
-        tecnicas=ANALISE_TECNICAS,
-        estatisticas=STATS_GLOBAL,
-        dados_carregados=(DF_GLOBAL is not None),
-        contador_visitas=total_visitas,
-        stats_gerador=stats_gerador # NOVO: Passando as estatísticas do gerador para o HTML
+        plot_url=PLOT_URL_GLOBAL, stats_plot_url=STATS_PLOT_URL_GLOBAL,
+        jogos=jogos, form_data=form_data, tecnicas=ANALISE_TECNICAS,
+        estatisticas=STATS_GLOBAL, dados_carregados=(DF_GLOBAL is not None),
+        contador_visitas=total_visitas, stats_gerador=stats_gerador
     )
 
 #if __name__ == '__main__':
-#   app.run(debug=True)
+#  app.run(debug=True)
